@@ -24,11 +24,24 @@ func (KVStoreApplication) Info(req abcitypes.RequestInfo) abcitypes.ResponseInfo
 	return abcitypes.ResponseInfo{}
 }
 
-// func (KVStoreApplication) SetOption(req abcitypes.RequestSetOption) abcitypes.ResponseSetOption {
-// 	return abcitypes.responseSetOption{}
-// }
+func (KVStoreApplication) SetOption(req abcitypes.RequestSetOption) abcitypes.ResponseSetOption {
+	return abcitypes.ResponseSetOption{}
+}
 
-func (KVStoreApplication) DeliverTx(req abcitypes.RequestDeliverTx) abcitypes.ResponseDeliverTx {
+func (app *KVStoreApplication) DeliverTx(req abcitypes.RequestDeliverTx) abcitypes.ResponseDeliverTx {
+	code := app.isValid(req.Tx)
+	if code != 0 {
+		return abcitypes.ResponseDeliverTx{Code: code}
+	}
+
+	parts := bytes.Split(req.Tx, []byte("="))
+	key, value := parts[0], parts[1]
+
+	err := app.currentBatch.Set(key, value)
+	if err != nil {
+		panic(err)
+	}
+
 	return abcitypes.ResponseDeliverTx{Code: 0}
 }
 
@@ -37,11 +50,33 @@ func (app *KVStoreApplication) CheckTx(req abcitypes.RequestCheckTx) abcitypes.R
 	return abcitypes.ResponseCheckTx{Code: code, GasWanted: 1}
 }
 
-func (KVStoreApplication) Commit() abcitypes.ResponseCommit {
-	return abcitypes.ResponseCommit{}
+func (app *KVStoreApplication) Commit() abcitypes.ResponseCommit {
+	app.currentBatch.Commit()
+	return abcitypes.ResponseCommit{Data: []byte{}}
 }
 
-func (KVStoreApplication) Query(req abcitypes.RequestQuery) abcitypes.ResponseQuery {
+func (app *KVStoreApplication) Query(reqQuery abcitypes.RequestQuery) (resQuery abcitypes.ResponseQuery) {
+	resQuery.Key = reqQuery.Data
+	err := app.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(reqQuery.Data)
+		if err != nil && err != badger.ErrKeyNotFound {
+			return err
+		}
+		if err == badger.ErrKeyNotFound {
+			resQuery.Log = "does not exist"
+		} else {
+			return item.Value(func(val []byte) error {
+				resQuery.Log = "exists"
+				resQuery.Value = val
+				return nil
+			})
+		}
+		return nil
+
+	})
+	if err != nil {
+		panic(err)
+	}
 	return abcitypes.ResponseQuery{Code: 0}
 }
 
