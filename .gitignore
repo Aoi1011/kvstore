@@ -246,4 +246,4 @@ $RECYCLE.BIN/
 
 # Ignore the lenslocked binary in source
 # code commints
-lenslocked
+kvstore
